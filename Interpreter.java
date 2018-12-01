@@ -8,30 +8,34 @@ public class Interpreter {
     private StmVisitor stmVisitor = new StmVisitor();
     private ExpVisitor expVisitor = new ExpVisitor();
 
+    private Scanner s = new Scanner(System.in);
+
     public void interpret(Program p) {
         p.accept(new ProgramVisitor(), env);
     }
 
+    ////////////////////////////// Programs //////////////////////////////
+
     public class ProgramVisitor implements Program.Visitor<Void, RuntimeEnv> {
         public Void visit(CPP.Absyn.PDefs p, RuntimeEnv env)
         {
-            /* Add all definitions to the signature */
+            /* Add all function definitions to the environment. */
             for (Def d: p.listdef_) {
                 DFun d1 = (DFun) d;
                 env.addFun(d1.id_, d1);
             }
 
-            /* Find main function */
+            /* Find main() function. */
             DFun main = env.lookupFun("main");
             if (main == null) throw new RuntimeException("Impossible: main function missing");
 
-            // Initialize context
+            /* Create new scope for main() function. */
             env.newContext();
 
-            // Execute the function body
+            /* Execute the main() function body. */
             try {
                 for (Stm s: main.liststm_)
-                    s.accept(stmVisitor, null);
+                    s.accept(stmVisitor, env);
             } catch (ReturnException e) {}
 
             return null;
@@ -67,9 +71,15 @@ public class Interpreter {
         {
             while (true) {
                 VBool condition = (VBool) p.exp_.accept(expVisitor, env);
-                if (condition.equals(new VBool(false)))
+
+                // If condition is true
+                if (condition.value) {
+                    env.newContext();
+                    p.stm_.accept(stmVisitor, env);
+                    env.delContext();
+                }
+                else
                     return null;
-                p.stm_.accept(stmVisitor, env);
             }
         }
         public Void visit(CPP.Absyn.SBlock p, RuntimeEnv env)
@@ -85,9 +95,13 @@ public class Interpreter {
         {
             VBool condition = (VBool) p.exp_.accept(expVisitor, env);
             if (condition.value) {
+                env.newContext();
                 p.stm_1.accept(stmVisitor, env);
+                env.delContext();
             } else {
+                env.newContext();
                 p.stm_2.accept(stmVisitor, env);
+                env.delContext();
             }
             return null;
         }
@@ -128,63 +142,89 @@ public class Interpreter {
                 System.out.println(v.value);
                 return new VVoid();
             } else if (p.id_.equals("readInt")) {
-                Scanner s = new Scanner(System.in);
                 return new VInt(s.nextInt());
             } else if (p.id_.equals("readDouble")) {
-                Scanner s = new Scanner(System.in);
                 return new VDouble(s.nextDouble());
             } else {
-                // Create a new context for function execution
-                env.newContext();
-
+                /* User defined function. */
                 DFun fun = env.lookupFun(p.id_);
-                int i = 0;
 
-                // Bind formal parameters
+                /* Bind formal parameters in a new scope. */
+                HashMap<String, Value> c = new HashMap<String, Value>();
+                int i = 0;
                 for (Exp e : p.listexp_) {
                     Value v = e.accept(expVisitor, env);
                     String id = ((ADecl) fun.listarg_.get(i)).id_;
-                    env.newVar(id, v);
+                    c.put(id, v);
                     i++;
                 }
+
+                /* Remember where to return after function execution completed. */
+                env.setFunctionCallReturnStub();
+
+                /* Push the newly created scope to the stack. */
+                env.newContext(c);
+
+                /* Execute function body. */
                 try {
-                    // Execute function body
                     for (Stm stm : fun.liststm_)
                         stm.accept(stmVisitor, env);
                 } catch (ReturnException e) {
                     return e.returnValue;
                 } finally {
-                    env.delContext();
+                    env.resumeCtxAfterFunctionCall();
                 }
             }
             return new VVoid();
         }
         public Value visit(CPP.Absyn.EPostIncr p, RuntimeEnv env)
         {
-            VInt v  = (VInt) env.lookupVar(p.id_);
-            VInt v1 = new VInt(v.value + 1);
-            env.assignVar(p.id_, v1);
+            Value v  = env.lookupVar(p.id_);
+            if (v instanceof VInt) {
+                VInt v1 = new VInt(((VInt)v).value + 1);
+                env.assignVar(p.id_, v1);
+            } else if (v instanceof VDouble) {
+                VDouble v1 = new VDouble(((VDouble)v).value + 1.0);
+                env.assignVar(p.id_, v1);
+            }
             return v;
         }
         public Value visit(CPP.Absyn.EPostDecr p, RuntimeEnv env)
         {
-            VInt v  = (VInt) env.lookupVar(p.id_);
-            VInt v1 = new VInt(v.value - 1);
-            env.assignVar(p.id_, v1);
+            Value v  = env.lookupVar(p.id_);
+            if (v instanceof VInt) {
+                VInt v1 = new VInt(((VInt)v).value - 1);
+                env.assignVar(p.id_, v1);
+            } else if (v instanceof VDouble) {
+                VDouble v1 = new VDouble(((VDouble)v).value - 1.0);
+                env.assignVar(p.id_, v1);
+            }
             return v;
         }
         public Value visit(CPP.Absyn.EPreIncr p, RuntimeEnv env)
         {
-            VInt v  = (VInt) env.lookupVar(p.id_);
-            VInt v1 = new VInt(v.value + 1);
-            env.assignVar(p.id_, v1);
+            Value v  = env.lookupVar(p.id_);
+            Value v1 = null;
+            if (v instanceof VInt) {
+                v1 = new VInt(((VInt)v).value + 1);
+                env.assignVar(p.id_, v1);
+            } else if (v instanceof VDouble) {
+                v1 = new VDouble(((VDouble)v).value + 1.0);
+                env.assignVar(p.id_, v1);
+            }
             return v1;
         }
         public Value visit(CPP.Absyn.EPreDecr p, RuntimeEnv env)
         {
-            VInt v  = (VInt) env.lookupVar(p.id_);
-            VInt v1 = new VInt(v.value + 1);
-            env.assignVar(p.id_, v1);
+            Value v  = env.lookupVar(p.id_);
+            Value v1 = null;
+            if (v instanceof VInt) {
+                v1 = new VInt(((VInt)v).value - 1);
+                env.assignVar(p.id_, v1);
+            } else if (v instanceof VDouble) {
+                v1 = new VDouble(((VDouble)v).value - 1.0);
+                env.assignVar(p.id_, v1);
+            }
             return v1;
         }
         public Value visit(CPP.Absyn.ETimes p, RuntimeEnv env)
@@ -304,10 +344,13 @@ public class Interpreter {
             Value v1 = p.exp_1.accept(expVisitor, env);
             Value v2 = p.exp_2.accept(expVisitor, env);
             if (v1 instanceof VInt) {
-                VBool result = new VBool( ((VInt) v1).value == ((VInt) v2).value);
+                VBool result = new VBool(v1.equals(v2));
                 return result;
             } else if (v1 instanceof VDouble) {
-                VBool result = new VBool( ((VDouble) v1).value == ((VDouble) v2).value);
+                VBool result = new VBool(v1.equals(v2));
+                return result;
+            } else if (v1 instanceof VBool) {
+                VBool result = new VBool(v1.equals(v2));
                 return result;
             } else {
                 throw new RuntimeException("Illegal type for comparison.");
@@ -318,10 +361,13 @@ public class Interpreter {
             Value v1 = p.exp_1.accept(expVisitor, env);
             Value v2 = p.exp_2.accept(expVisitor, env);
             if (v1 instanceof VInt) {
-                VBool result = new VBool( ((VInt) v1).value != ((VInt) v2).value);
+                VBool result = new VBool(!v1.equals(v2));
                 return result;
             } else if (v1 instanceof VDouble) {
-                VBool result = new VBool( ((VDouble) v1).value != ((VDouble) v2).value);
+                VBool result = new VBool(!v1.equals(v2));
+                return result;
+            } else if (v1 instanceof VBool) {
+                VBool result = new VBool(!v1.equals(v2));
                 return result;
             } else {
                 throw new RuntimeException("Illegal type for comparison.");
@@ -330,20 +376,19 @@ public class Interpreter {
         public Value visit(CPP.Absyn.EAnd p, RuntimeEnv env)
         {
             VBool v1 = (VBool) p.exp_1.accept(expVisitor, env);
-            VBool v2 = (VBool) p.exp_2.accept(expVisitor, env);
             if (v1.value == false)
                 return new VBool(false);
-            else if (v2.value == true)
+            VBool v2 = (VBool) p.exp_2.accept(expVisitor, env);
+            if (v2.value == true)
                 return new VBool(true);
-            else
-                return new VBool(false);
+            return new VBool(false);
         }
         public Value visit(CPP.Absyn.EOr p, RuntimeEnv env)
         {
             VBool v1 = (VBool) p.exp_1.accept(expVisitor, env);
-            VBool v2 = (VBool) p.exp_2.accept(expVisitor, env);
             if (v1.value == true)
                 return new VBool(true);
+            VBool v2 = (VBool) p.exp_2.accept(expVisitor, env);
             if (v2.value == true)
                 return new VBool(true);
             return new VBool(false);

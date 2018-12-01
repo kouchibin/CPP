@@ -2,12 +2,15 @@ import java.util.*;
 import CPP.Absyn.*;
 
 public class RuntimeEnv {
+
     private Map<String, DFun> sig;
     private LinkedList<Map<String, Value>> ctx;
+    private LinkedList<Map<String, Value>> functionCallReturnStubs;
 
     public RuntimeEnv() {
         sig = new HashMap<String, DFun>();
         ctx = new LinkedList<Map<String, Value>>();
+        functionCallReturnStubs = new LinkedList<Map<String, Value>>();
     }
 
     public void addFun(String id, DFun f) {
@@ -40,18 +43,38 @@ public class RuntimeEnv {
     }
 
     public void newVar(String id, Value v) {
-        // Make sure that the variable is not defined in current context.
+        /* Make sure that the variable is not defined in current scope. */
         if (ctx.peek().containsKey(id))
             throw new RuntimeException ("Variable " + id + " already defined");
         ctx.peek().put(id, v);
+    }
+
+    /* When calling a function, we need to remember the returning context. */
+    public void setFunctionCallReturnStub() {
+        functionCallReturnStubs.push(ctx.peek());
+    }
+
+    /* After function execution completed, resume the context before the function call. */
+    public void resumeCtxAfterFunctionCall() {
+        Map<String, Value> stub = functionCallReturnStubs.pop();
+        while (ctx.peek() != stub)
+            ctx.pop();
     }
 
     public void newContext() {
         ctx.push(new HashMap<String, Value>());
     }
 
+    public void newContext(HashMap<String, Value> c) {
+        ctx.push(c);
+    }
+
     public void delContext() {
         ctx.pop();
+    }
+
+    public String toString() {
+        return ctx.toString();
     }
 
 }

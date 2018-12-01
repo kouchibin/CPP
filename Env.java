@@ -2,15 +2,16 @@ import java.util.*;
 import CPP.Absyn.*;
 
 public class Env {
-    public static HashMap<String, FunType> signature;
-    public static LinkedList<HashMap<String, Type>> contexts;
-    private Type returnType;
+    public static HashMap<String, FunType> signature;           // Funtion signatures
+    public static LinkedList<HashMap<String, Type>> contexts;   // Scopes
+    private static Type returnType;                             // Current function return types
 
     public Env() {
         signature = new HashMap<String, FunType>();
         contexts = new LinkedList<HashMap<String, Type>>();
         returnType = null;
     }
+
 
     public Type lookupVar(String id) {
         for (Map<String, Type> ctx : contexts) {
